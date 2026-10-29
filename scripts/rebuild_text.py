@@ -113,14 +113,49 @@ def learn_footers(pages, band, min_repeat):
     return {t for t, n in counts.items() if n >= need}
 
 
-def is_footer(line, footer_set, height, band):
+_TPL_CACHE = {}
+
+
+def footer_pattern(tpl):
+    """A footer template is a pattern: `#` stands for "some digits, or none".
+
+    The book's own running head is printed as `17灵谿词说正续编` on most pages
+    but as bare `灵谿词说正续编` on the contents pages, so an exact-match test
+    against the learned template misses it.
+    """
+    pat = _TPL_CACHE.get(tpl)
+    if pat is None:
+        pat = re.compile("".join(r"\d*" if ch == "#" else re.escape(ch) for ch in tpl))
+        _TPL_CACHE[tpl] = pat
+    return pat
+
+
+def matches_template(text, footer_set):
+    t = text.strip()
+    return any(footer_pattern(tpl).fullmatch(t) for tpl in footer_set)
+
+
+def is_footer(line, footer_set, height, band, sparse=False, prose=False):
     x0, y0, x1, y1, text, _s = line
+    if sparse:
+        # A page holding only a handful of lines is a cover, a plate, a
+        # colophon or a chapter-end page. A band line there is content (a
+        # caption, a price under a barcode, the publisher's imprint) unless it
+        # is recognisably a running head:
+        #   * it matches a learned template (`#` may be absent), or
+        #   * the page does show prose and the line is a short "title + folio".
+        if not height:
+            return False
+        if y0 >= 0.85 * height and matches_template(text, footer_set):
+            return True
+        return bool(prose and len(text) <= 24 and re.search(r"\d{1,4}$", text)
+                    and y0 >= 0.85 * height)
     if height and y0 >= band * height and len(text) <= 40:
         return True
     # A learned running head may sit above the band in some layouts, but it is
     # never in the middle of a text block, so keep a lower bound on y.
-    return (DIGITS.sub("#", text) in footer_set
-            and height and y0 >= 0.85 * height)
+    return (matches_template(text, footer_set) and height
+            and y0 >= 0.85 * height)
 
 
 # --------------------------------------------------------------- line fixing
@@ -265,7 +300,15 @@ def page_body(page, footers, args):
     if not lines:
         return [], 0
     height = max(l[3] for l in lines)
-    body = [l for l in lines if not is_footer(l, footers, height, args.footer_band)]
+    # A page with a handful of lines is a cover, a plate, a colophon or a
+    # chapter-end page. If it does not even hold two prose-length lines, there
+    # is no text block for a running head to belong to, and lines in the bottom
+    # band are content (a caption, a price under a barcode, an imprint).
+    n_prose = sum(1 for l in lines if len(l[4]) >= args.sparse_prose)
+    prose = n_prose >= 1
+    sparse = len(lines) <= args.sparse_lines and n_prose < 2
+    body = [l for l in lines
+            if not is_footer(l, footers, height, args.footer_band, sparse, prose)]
     body = splice_baselines(body, args.splice_overlap, args.splice_gap) if args.splice else body
     return body, height
 
@@ -364,6 +407,13 @@ def main():
                          "running head; footnotes usually sit above this")
     ap.add_argument("--footer-repeat", type=int, default=2,
                     help="minimum occurrence count for a running-head template")
+    ap.add_argument("--sparse-lines", type=int, default=6,
+                    help="pages with at most this many lines (covers, plates, "
+                         "colophons, chapter-end pages) only lose *learned* "
+                         "running heads, never a band-rule line")
+    ap.add_argument("--sparse-prose", type=int, default=25,
+                    help="a sparse page with a line at least this long still "
+                         "counts as a text page and keeps the band rule")
     ap.add_argument("--indent", type=float, default=1.2, help="indent threshold in char widths")
     ap.add_argument("--gap", type=float, default=1.45, help="paragraph gap threshold in line heights")
     ap.add_argument("--eoc-tol", type=float, default=1.0,

@@ -54,6 +54,27 @@ including the closing date and source line of every essay.
   digits (`re.sub(r"\d+", "#", text)`), never with `text in template` — the template
   starts with `#` and the page's line starts with `16`.
 
+### Sparse pages (`--sparse-lines`, `--sparse-prose`)
+
+The band rule assumes a page of flowing prose. Covers, plates, colophons, back covers and
+article-ending pages break that assumption: on one back cover the price line sat at
+0.969·H and was deleted as a folio, and on two plate pages the captions
+(「作者讨论文稿（摄于1983年夏）」) vanished the same way.
+
+A page is *sparse* when `len(lines) ≤ --sparse-lines` (6) and it has fewer than 2 prose
+lines (`len ≥ --sparse-prose`, 25 characters). On a sparse page, delete a line only when:
+
+1. it matches a learned template **as a pattern** — compile `#` to `\d*`, so the bare
+   「灵谿词说正续编」 (no folio) still matches `#灵谿词说正续编`; or
+2. it is a short line (≤24 characters) ending in 1–4 digits, on a page that *does* have at
+   least one prose line — the «chapter title + page number» running head
+   (「论贺铸词231」, 「陈师道词论与词作述评533」).
+
+Both conditions are needed. Condition 1 alone lets digit-bearing running heads through;
+condition 2 alone deletes「定价：148.00元」and the ISBN/barcode block. Rendered against a
+822-page book this changed exactly 5 pages relative to the plain band rule, all of them
+fixes.
+
 ## Paragraph breaks (`--indent`, `--gap`, `--eoc-tol`)
 
 Start a new paragraph when any of these holds:

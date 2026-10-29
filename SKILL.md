@@ -111,6 +111,14 @@ them. Read `references/layout-heuristics.md` before changing thresholds.
   「1957年写定」 and 「(原载《…》1985年第4期)」 are *end-of-article notes* that repeat
   just as often and are real text — a `≥2` rule deleted 40 000 characters from one book.
   Keep the band tight (0.96, not 0.88): footnotes live at 0.86–0.95·H.
+- **Sparse pages are their own case** (cover, plates, colophon, back cover, the last page
+  of an article): the band rule deletes real text there — a price line at 0.969·H went
+  missing. On a page with `len(lines) ≤ --sparse-lines` (6) and fewer than 2 prose lines
+  (`≥ --sparse-prose`, 25 characters), delete a line only if it (a) matches a learned
+  template *as a pattern* (`#` → `\d*`, so the bare 「书名」 also matches `#书名`), or
+  (b) is a ≤24-character line ending in 1–4 digits on a page that has real prose («title
+  + page number» running head). Blanket "bottom band = footer" loses back-cover prices,
+  imprint lines and plate captions; blanket "never" leaks three running heads into text.
 - **Body geometry**: `left`/`right` are the 10th/90th percentile of the page's own line
   `x0`/`x1`, `cw` = (x1−x0)/len(text) per line, `hh` = median line height. Compute left
   and right **per page**, not once for the whole book: sections of one book are set with
@@ -183,6 +191,15 @@ Preferred, in this order:
 - `META-INF/container.xml` → the OPF path; OPF with `unique-identifier` + `dc:identifier`,
   `dc:title`, `dc:language`, and `dcterms:modified` (`YYYY-MM-DDTHH:MM:SSZ`).
 - EPUB3 `nav.xhtml` with `properties="nav"`, plus `toc.ncx` for older readers.
+- **Link the printed table of contents.** A TOC chapter rendered as plain paragraphs is a
+  dead page: every entry must be `<a href="text/chNNN.xhtml">title（author）</a>` plus its
+  printed number. Build the chapter documents first, then insert the TOC document, so the
+  hrefs are known (`ch%03d` index = chapter index + number of front-matter documents).
+- **Add real page anchors**: `<span epub:type="pagebreak" role="doc-pagebreak" id="pg29"
+  title="15"/>` at every page boundary (map PDF page → printed number, see §5), and a
+  `<nav epub:type="page-list" id="page-list" hidden="hidden">` in `nav.xhtml` listing them.
+  This gives readers a "go to page" dialog and makes printed citations navigable; both
+  forms are EPUBCheck-clean (810 anchors in one book, 0 warnings).
 - Cover: `properties="cover-image"` on the manifest item **and**
   `<meta name="cover" content="..."/>`.
 - Images referenced with relative paths from each XHTML file.
@@ -218,9 +235,11 @@ Rules that follow from that:
 4. Every page 1..N belongs to a chapter (the printed TOC front matter may legitimately
    own some pages).
 5. `validate_epub.py` → `RESULT: PASS`; EPUBCheck 5.x → `0 fatals / 0 errors`.
-6. Spot-check ~10 pages against the scan images (first page of a chapter, a poetry page,
+6. Navigation actually navigates: click two entries in the printed TOC and confirm the
+   reader lands on the chapter's first page; check one `page-list` entry against the scan.
+7. Spot-check ~10 pages against the scan images (first page of a chapter, a poetry page,
    a page with the rarest characters, the last page).
-7. One output file, one clear name, no `(copy)`/`(revised)` siblings left behind.
+8. One output file, one clear name, no `(copy)`/`(revised)` siblings left behind.
 
 Report what you did **not** verify: OCR is a transcription, not a proofread — say that
 plainly, and offer a targeted pass (rare characters, names, dates, numbers) instead of

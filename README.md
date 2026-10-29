@@ -77,11 +77,15 @@ Measured end to end on an 822-page scan (452×712 pt, 270 dpi, Chinese):
 | chapter mapping + build | 45 min |
 | validation and proofreading | 20 min |
 
-Result: 637,002 characters, 68 documents, ~2 MB, EPUBCheck `0 fatals / 0 errors /
-0 warnings`. The same book before the layout fixes came out at 633,678 characters: the
-3,300-character difference is footnotes and end-of-article notes that the old footer
-rule was deleting, while the block count stayed flat at ~4,300 — more text, not more
-fragmentation.
+Result: 635,880 characters, 68 documents, 810 page anchors, ~2.3 MB, EPUBCheck
+`0 fatals / 0 errors / 0 warnings`. The same book before the layout fixes came out at
+633,678 characters: the difference is footnotes, end-of-article notes and a back-cover
+price line that the old footer rule was deleting, while the block count stayed flat at
+~4,300 — more text, not more fragmentation.
+
+The output is navigable, not just readable: the in-book 「目录」 has one link per chapter,
+every page boundary carries an `epub:type="pagebreak"` anchor, and `nav.xhtml` exposes a
+`page-list`, so "jump to printed page 457" works in readers that support it.
 
 ## The two lessons this repository exists for
 

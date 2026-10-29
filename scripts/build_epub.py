@@ -155,6 +155,58 @@ def merge_blocks(chunks):
     return merged
 
 
+# --------------------------------------------------------------- page numbers
+
+
+def drop_heading_seg(segs, title, author):
+    """drop_heading() for (type, text, page) segments."""
+    blocks = [{"type": t, "text": x} for t, x, _p in segs]
+    kept = drop_heading(blocks, title, author)
+    drop = len(blocks) - len(kept)
+    return segs[drop:]
+
+
+def merge_segs(segs):
+    """merge_blocks() that remembers which page every fragment came from."""
+    merged = []
+    for typ, text, page in segs:
+        if merged and merged[-1]["type"] == "p" and typ == "p":
+            prev = merged[-1]["parts"][-1][0]
+            if prev and prev[-1] not in SENT_END:
+                merged[-1]["parts"].append((text, page))
+                continue
+        merged.append({"type": typ, "parts": [(text, page)]})
+    return merged
+
+
+def printed_of(pdf_page, rev, offset):
+    """Printed page number for a PDF page: the outline's own map wins."""
+    if rev.get(pdf_page):
+        return rev[pdf_page]
+    return pdf_page - offset if offset else pdf_page
+
+
+def pagebreak_html(pdf_page, printed):
+    return '<span epub:type="pagebreak" role="doc-pagebreak" id="pg%d" title="%s"/>' % (
+        pdf_page, printed)
+
+
+def render_blocks(blocks, rev, offset, breaks):
+    """Paragraphs with a pagebreak marker wherever the printed page changes."""
+    out = []
+    last = None
+    for block in blocks:
+        pieces = []
+        for text, page in block["parts"]:
+            if page != last:
+                pieces.append(pagebreak_html(page, printed_of(page, rev, offset)))
+                breaks.append(page)
+                last = page
+            pieces.append(esc(text))
+        out.append("<%s>%s</%s>" % (block["type"], "".join(pieces), block["type"]))
+    return "\n".join(out)
+
+
 # --------------------------------------------------------------------------- xhtml
 
 
@@ -195,17 +247,23 @@ def verse_html(lines, footers, title="", author=""):
     return "\n".join(parts)
 
 
-def toc_html(entries):
+def toc_html(entries, hrefs=None):
+    """The printed contents page, with every title linking to its chapter."""
     rows = ['<h1>原书目录</h1>']
     section = None
-    for entry in entries:
+    for i, entry in enumerate(entries):
         if entry.get("section") and entry["section"] != section:
             section = entry["section"]
             rows.append('<p class="sechead">%s</p>' % esc(section))
         author = entry.get("author") or ""
         label = "%s（%s）" % (entry["title"], author) if author else entry["title"]
+        href = (hrefs or {}).get(i)
+        if href:
+            label = '<a href="%s">%s</a>' % (href, esc(label))
+        else:
+            label = esc(label)
         rows.append('<p class="tocline">%s <span class="pg">%s</span></p>'
-                    % (esc(label), entry.get("page", "")))
+                    % (label, entry.get("page", "")))
     return "\n".join(rows)
 
 
@@ -294,15 +352,18 @@ def build(spec):
                          "author": entry.get("author", ""),
                          "pages": list(range(starts[i], max(starts[i], end) + 1))})
 
-    docs = []
-    if spec.get("printed_toc") and toc:
-        docs.append(("printedtoc.xhtml",
-                     XHTML % {"lang": lang, "title": "原书目录", "type_attr": "",
-                              "body": toc_html(toc)},
-                     "原书目录"))
+    rev = {}
+    if pmap:
+        rev = {v: int(k) for k, v in pmap.items()}
 
+    docs = []
+    page_entries = []                      # (document, pdf_page) for the page list
+    toc_hrefs = {}                         # toc index -> document name
+    n_front = len(spec.get("front", []))
     for idx, chapter in enumerate(chapters, start=1):
         name = "ch%03d.xhtml" % idx
+        if idx > n_front:
+            toc_hrefs[idx - n_front - 1] = name
         title = chapter["title"]
         kind = chapter["kind"]
         head = []
@@ -314,6 +375,7 @@ def build(spec):
                 author = author[:2] + "、" + author[2:]
             head.append('<p class="author">%s</p>' % esc(author))
 
+        breaks = []
         if kind == "cover":
             body = image_html(chapter["pages"], image_dir, "") if image_dir else ""
         elif kind == "image":
@@ -326,28 +388,40 @@ def build(spec):
             body = "\n".join(head) + "\n" + verse_html(
                 lines, footers, title=title, author=chapter.get("author", ""))
         else:
-            collected = []
+            segs = []
             for page in chapter["pages"]:
                 entry = pages.get(page)
                 if not entry:
                     continue
-                collected += [dict(b) for b in entry["blocks"] if b["type"] in ("p", "h2")]
-            collected = [{"type": b["type"], "text": fix(b["text"])} for b in collected]
-            collected = merge_blocks(drop_heading(collected, title, chapter.get("author", "")))
-            body = "\n".join(head) + "\n" + "\n".join(
-                "<%s>%s</%s>" % (b["type"], esc(b["text"]), b["type"]) for b in collected)
+                segs += [(b["type"], fix(b["text"]), page) for b in entry["blocks"]
+                         if b["type"] in ("p", "h2")]
+            segs = merge_segs(drop_heading_seg(segs, title, chapter.get("author", "")))
+            body = "\n".join(head) + "\n" + render_blocks(segs, rev, offset, breaks)
+
+        if not breaks and chapter["pages"]:            # still give the chapter a page anchor
+            breaks.append(chapter["pages"][0])
+            body = pagebreak_html(chapter["pages"][0],
+                                  printed_of(chapter["pages"][0], rev, offset)) + "\n" + body
+        for page in breaks:
+            page_entries.append((name, page, printed_of(page, rev, offset)))
 
         attr = ' epub:type="cover"' if kind == "cover" else ""
         docs.append((name, XHTML % {"lang": lang, "title": esc(title or "封面"),
                                     "type_attr": attr, "body": body}, title))
 
-    return docs, pages, toc, spec, base, lang, unmatched
+    if spec.get("printed_toc") and toc:
+        docs.insert(0, ("printedtoc.xhtml",
+                        XHTML % {"lang": lang, "title": "原书目录", "type_attr": "",
+                                 "body": toc_html(toc, toc_hrefs)},
+                        "原书目录"))
+
+    return docs, pages, toc, spec, base, lang, unmatched, page_entries
 
 
 # --------------------------------------------------------------------------- package
 
 
-def write_epub(path, docs, toc, spec, base, lang):
+def write_epub(path, docs, toc, spec, base, lang, page_entries=()):
     ident = spec.get("isbn")
     identifier = ("urn:isbn:%s" % ident) if ident else (
         "urn:uuid:%s" % uuid.uuid5(uuid.NAMESPACE_URL, "epub:%s:%s"
@@ -414,6 +488,12 @@ def write_epub(path, docs, toc, spec, base, lang):
     nav_items = []
     for name, _body, title in docs:
         nav_items.append('<li><a href="text/%s">%s</a></li>' % (name, esc(title or "封面")))
+    page_items = ""
+    if page_entries:
+        items = "".join('<li><a href="text/%s#pg%d">%s</a></li>' % (name, page, printed)
+                        for name, page, printed in page_entries)
+        page_items = ('<nav epub:type="page-list" id="page-list" hidden="hidden"><h1>页码</h1>\n'
+                      '<ol>%s</ol></nav>\n' % items)
     nav = ("""<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"
@@ -425,9 +505,9 @@ def write_epub(path, docs, toc, spec, base, lang):
 <ol>
 %s
 </ol></nav>
-</body>
+%s</body>
 </html>
-""" % (lang, lang, "\n".join(nav_items)))
+""" % (lang, lang, "\n".join(nav_items), page_items))
 
     points = []
     for i, (name, _body, title) in enumerate(docs, start=1):
@@ -480,7 +560,7 @@ def main():
 
     spec = load_json(args.spec)
     spec["_path"] = os.path.abspath(args.spec)
-    docs, pages, toc, spec, base, lang, unmatched = build(spec)
+    docs, pages, toc, spec, base, lang, unmatched, page_entries = build(spec)
     target = args.out
     for suffix in ("", " (1)", " (2)", " (3)"):
         candidate = target.replace(".epub", "%s.epub" % suffix)
@@ -491,7 +571,8 @@ def main():
             break
         except PermissionError:
             continue
-    n_docs, n_images, _ncx, _opf = write_epub(target, docs, toc, spec, base, lang)
+    n_docs, n_images, _ncx, _opf = write_epub(target, docs, toc, spec, base, lang,
+                                              page_entries)
 
     if unmatched and not args.quiet:
         print("unmatched chapters (%d):" % len(unmatched))

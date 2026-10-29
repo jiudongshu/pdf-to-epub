@@ -76,6 +76,29 @@ Required: `version="3.0"`, `unique-identifier="bookid"`, a `dc:identifier` with 
 - `xmlns:epub` is required if you use `epub:type` anywhere.
 - Relative paths only, and they are relative **to the XHTML file**, so `../images/`.
 
+## Navigation that works
+
+Three separate things, easy to conflate:
+
+- **Reader TOC panel** — the `<nav epub:type="toc">` list in `nav.xhtml`; one `<li>` per
+  document, `href` to the XHTML file. Without it the reader shows nothing to click.
+- **In-book TOC page** — if you reproduce the printed 「目录」, each line must be a link
+  (`<a href="text/ch012.xhtml">论温庭筠词（缪钺）</a> <span class="pg">50</span>`).
+  Paragraph-only text looks identical and is dead. Build the chapters first, then insert
+  the TOC document, so hrefs (`ch%03d` = index + count of front-matter docs) are known.
+- **Page anchors / page-list** — `<span epub:type="pagebreak" role="doc-pagebreak"
+  id="pg64" title="50"/>` at each page boundary, plus
+
+  ```xml
+  <nav epub:type="page-list" id="page-list" hidden="hidden"><h1>页码</h1>
+    <ol><li><a href="text/ch012.xhtml#pg64">50</a></li>…</ol></nav>
+  ```
+
+  `title`/link text is the **printed** page number, `id` is derived from the PDF page —
+  keep them distinct or citations point at the wrong page. Both forms pass EPUBCheck 5.1
+  with zero warnings (810 anchors in one 822-page book). Readers that ignore it lose only
+  the "go to page" dialog, so it is always worth adding.
+
 ## NCX (legacy readers)
 
 `toc.ncx` with `dtb:uid` matching the OPF identifier, one `navPoint` per chapter,
