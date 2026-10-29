@@ -24,9 +24,10 @@ PY = sys.executable
 
 
 def run(cmd, label):
-    print("\n== %s ==" % label)
-    print("$ " + " ".join(cmd))
+    print("\n== %s ==" % label, flush=True)
+    print("$ " + " ".join(cmd), flush=True)
     code = subprocess.call(cmd)
+    sys.stdout.flush()
     if code != 0:
         sys.exit("%s failed with exit code %d" % (label, code))
 
@@ -73,16 +74,19 @@ def main():
 
     print("""
 == next steps (human) ==
-1. write %s/spec.json — metadata, front matter, offset, window
-   (start from examples/spec.json; set "blocks": "%s", "ocr_dir": "%s",
-    "image_dir": "%s")
-2. write %s/toc.json — one entry per chapter; seed it with
-     python scripts/toc_seed.py %s --pages 11-14
+1. write %(w)s/spec.json — metadata, front matter, offset, window
+   (start from examples/spec.json; set "blocks": "%(blocks)s", "ocr_dir": "%(ocr)s",
+    "image_dir": "%(pages)s")
+2. write %(w)s/toc.json — one entry per chapter; seed it with
+     python scripts/toc_seed.py %(ocr)s --pages 11-14
    then fix the titles by hand. "page" is the PRINTED page number.
-3. python scripts/build_epub.py %s/spec.json --out book.epub
+3. python scripts/build_epub.py %(w)s/spec.json --out book.epub
 4. python scripts/validate_epub.py book.epub --verbose
-5. read the first 3 pages of every chapter once; then ship.""" %
-          (args.work, os.path.basename(blocks), ocr, pages, args.work, ocr))
+5. read the first 3 pages of every chapter once; then ship.""" % {
+        "w": args.work.replace("\\", "/"),
+        "blocks": blocks.replace("\\", "/"),
+        "ocr": ocr.replace("\\", "/"),
+        "pages": pages.replace("\\", "/")})
 
     if not os.path.exists(os.path.join(args.work, "spec.json")):
         sys.exit(0)
