@@ -1,4 +1,4 @@
-# dsh-pdf-to-epub
+# pdf-to-epub
 
 Turn a PDF into a validated, reflowable, searchable **EPUB 3** — including the hard
 case: a pure scanned book with no text layer at all.
@@ -34,13 +34,13 @@ pdf ──probe──> has text layer? ──yes──> extract text ─┐
 ## Install as a DSH skill
 
 ```bash
-git clone https://github.com/jiudongshu/dsh-pdf-to-epub.git
-cp -r dsh-pdf-to-epub ~/.dsh/skills/dsh-pdf-to-epub          # user-scoped: every session sees it
-# or: cp -r dsh-pdf-to-epub <project>/.dsh/skills/dsh-pdf-to-epub    # project-scoped
+git clone https://github.com/jiudongshu/pdf-to-epub.git
+cp -r pdf-to-epub ~/.dsh/skills/pdf-to-epub          # user-scoped: every session sees it
+# or: cp -r pdf-to-epub <project>/.dsh/skills/pdf-to-epub    # project-scoped
 ```
 
 The skill is a directory bundle: the directory name and the frontmatter `name` must both
-be `dsh-pdf-to-epub`, the entry point is `SKILL.md` (YAML frontmatter `name` +
+be `pdf-to-epub`, the entry point is `SKILL.md` (YAML frontmatter `name` +
 `description`, then the procedure). Resources live in `scripts/` and `references/`, and
 once the directory is inside a skills root it shows up in the skill catalog without any
 registration step.

@@ -1,5 +1,5 @@
 ---
-name: dsh-pdf-to-epub
+name: pdf-to-epub
 description: Turn a PDF into a searchable, reflowable EPUB 3, including scans with no text layer (OCR, layout, chapters). Use when a PDF should become an ebook, or an EPUB needs checking.
 ---
 
