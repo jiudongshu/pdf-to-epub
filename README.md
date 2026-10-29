@@ -33,15 +33,16 @@ pdf ──probe──> has text layer? ──yes──> extract text ─┐
 
 ## Install as a DSH skill
 
-Copy this directory into a skills root:
-
-```text
-<project>/.dsh/skills/pdf-to-epub/      # project-scoped
-~/.dsh/skills/pdf-to-epub/              # user-scoped
+```bash
+git clone https://github.com/jiudongshu/pdf-to-epub.git
+cp -r pdf-to-epub ~/.dsh/skills/pdf-to-epub        # user-scoped: every session sees it
+# or: cp -r pdf-to-epub <project>/.dsh/skills/pdf-to-epub    # project-scoped
 ```
 
-The entry point is `SKILL.md` (YAML frontmatter `name` + `description`, then the
-procedure). Resources live in `scripts/` and `references/`.
+The skill is a directory bundle: the entry point is `SKILL.md` (YAML frontmatter `name` +
+`description`, then the procedure). Resources live in `scripts/` and `references/`, and
+once the directory is inside a skills root it shows up in the skill catalog without any
+registration step.
 
 ## Quick start
 
