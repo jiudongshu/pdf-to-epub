@@ -1,0 +1,25 @@
+{
+  "_comment": "Reference spec from a real book: 822-page scan, 62 chapters. Paths are relative to this file.",
+  "title": "灵谿词说正续编",
+  "authors": ["缪钺", "叶嘉莹"],
+  "publisher": "北京大学出版社",
+  "date": "2014-11",
+  "isbn": "978-7-301-24042-7",
+  "language": "zh-CN",
+  "description": "据北京大学出版社 2014 年 11 月第 1 版扫描件 OCR 整理，正文可重排、可检索。",
+  "blocks": "work/blocks.json",
+  "ocr_dir": "work/ocr",
+  "image_dir": "work/pages",
+  "toc": "toc.json",
+  "offset": 14,
+  "window": 6,
+  "front": [
+    {"kind": "cover", "pages": [1]},
+    {"kind": "text", "pages": [2], "title": "书名页"},
+    {"kind": "text", "pages": [3], "title": "版权页"},
+    {"kind": "image", "pages": [4, 5, 6, 7], "caption": "书影与作者合影"},
+    {"kind": "text", "pages": [8, 9, 10], "title": "《灵谿词说正续编》重版前言",
+     "author": "叶嘉莹"}
+  ],
+  "printed_toc": true
+}
