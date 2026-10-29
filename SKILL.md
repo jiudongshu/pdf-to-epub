@@ -1,5 +1,5 @@
 ---
-name: pdf-to-epub
+name: dsh-pdf-to-epub
 description: Convert a PDF into a validated, reflowable EPUB3 — probe whether it has a text layer, OCR the scans when it does not, rebuild paragraphs and headings, map the printed table of contents to chapters, and package a searchable book. Use when a PDF is the input and an EPUB (or any reflowable, searchable ebook) is the deliverable, when a scanned book must become selectable text, or when an EPUB needs structural validation.
 ---
 
