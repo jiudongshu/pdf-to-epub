@@ -11,6 +11,7 @@
   "ocr_dir": "work/ocr",
   "image_dir": "work/pages",
   "toc": "toc.json",
+  "page_map": "work/page_map.json",
   "offset": 14,
   "window": 6,
   "front": [

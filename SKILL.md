@@ -49,6 +49,8 @@ Route decision:
 | **C. Fixed-layout images** | OCR unusable (handwriting, complex layout, art books) or layout fidelity is the point | minutes, but larger file, no search/reflow |
 
 State the chosen route and why before you start producing artifacts.
+`references/prior-art.md` records what was taken (and deliberately not taken) from
+existing PDF→EPUB converters — read it before reinventing a layout rule.
 
 ## 2. Route B pipeline
 
@@ -60,12 +62,13 @@ Every command is a gate: if it fails, stop and fix rather than continuing.
 | 2 | page images | `extract_pages.py book.pdf --out pages/` | image count == page count reported by probe |
 | 3 | OCR | `ocr_pages.py pages/ --out ocr/ --workers 8 --must-contain 谿,钺` | every page has JSON; `must-contain` hits > 0 |
 | 4 | layout | `rebuild_text.py ocr/ --out blocks.json` | no page lost; text pages ≫ image pages |
-| 5 | chapters | `toc_seed.py ocr/ --pages 11-14 --out toc.json`, fix the titles by hand, write `spec.json` (see `examples/spec.json`) | every printed page 1..N belongs to exactly one chapter |
-| 6 | package | `build_epub.py spec.json --out book.epub` | `chapters 62 matched / 62`, expected document and image counts |
-| 7 | validate | `validate_epub.py book.epub --verbose` | `RESULT: PASS`; EPUBCheck 0 fatals / 0 errors |
+| 5 | page map | `outline_toc.py book.pdf --page-map page_map.json --out toc_outline.json` | if the PDF has bookmarks, `printed − pdf` is constant for every entry |
+| 6 | chapters | `toc_seed.py ocr/ --pages 11-14 --out toc.json`, fix the titles by hand, write `spec.json` (see `examples/spec.json`) | every printed page 1..N belongs to exactly one chapter |
+| 7 | package | `build_epub.py spec.json --out book.epub` | `chapters 62 matched / 62`, expected document and image counts |
+| 8 | validate | `validate_epub.py book.epub --verbose` | `RESULT: PASS`; EPUBCheck 0 fatals / 0 errors |
 
 `pipeline.py book.pdf work/ --workers 8 --must-contain 谿,钺` runs steps 1–4 and prints
-the exact commands for 5–7. Every step reuses existing artifacts, so re-running is free.
+the exact commands for 5–8. Every step reuses existing artifacts, so re-running is free.
 
 **Step 3 is the long pole.** Run it as a background job; it prints progress and ETA
 every 25 pages and skips pages that already have JSON, so interruption costs nothing.
@@ -101,16 +104,29 @@ are combined.
 `rebuild_text.py` implements the defaults below; tune with flags when a book fights
 them. Read `references/layout-heuristics.md` before changing thresholds.
 
-- **Footer/running head**: lines with `y0 ≥ 0.88·H` whose text, with digits replaced by
-  `#`, repeats on ≥2 pages. Learn the template set, then drop matching lines. A
-  threshold of ≥4 looks safer and is wrong — 「目录 1」 appears only three times.
-- **Body geometry**: `left` = 10th percentile of line `x0`, `right` = 90th percentile of
-  `x1`, `cw` = (right−left)/median(line length), `hh` = median line height.
-- **New paragraph** when `x0 − left > 1.2·cw` (indent), or the previous line ended
-  early (`prev.x1 < right − 2·cw`), or the vertical gap exceeds `1.45·hh`.
-- **Heading** when centred, `height ≥ 1.18·hh`, short, no terminal punctuation, and a
-  large gap above. Drop headings shorter than 3 normalised characters — single
-  characters (「三」「懒」「笑」) are page-number debris, not headings.
+- **Footer/running head**: two rules, both learned from data. (a) any short line with
+  `y0 ≥ 0.96·H` is a running head; (b) a template (digits replaced by `#`) is a running
+  head only if it occurs on ≥30% of pages, or above 0.85·H. A count-based threshold
+  (`≥2`) is wrong twice over: 「目录 1」 appears three times yet is a footer, while
+  「1957年写定」 and 「(原载《…》1985年第4期)」 are *end-of-article notes* that repeat
+  just as often and are real text — a `≥2` rule deleted 40 000 characters from one book.
+  Keep the band tight (0.96, not 0.88): footnotes live at 0.86–0.95·H.
+- **Body geometry**: `left`/`right` are the 10th/90th percentile of the page's own line
+  `x0`/`x1`, `cw` = (x1−x0)/len(text) per line, `hh` = median line height. Compute left
+  and right **per page**, not once for the whole book: sections of one book are set with
+  different margins, and a pooled `right` one character too wide turns every line into
+  its own paragraph (+111% blocks in one book). Pooled geometry is still useful to detect
+  columns and to fall back on for sparse pages.
+- **New paragraph** when the previous line stopped short of `right` by more than
+  `1.0·cw` (end-of-column test), or `x0 − left > 2.0·cw` (indent), or the vertical gap
+  exceeds `1.45·hh`. The end-of-column test is the important one: a line that ends a
+  paragraph stops ~4 character widths short, a line that continues only ~0.1 — measure
+  your book instead of trusting a guess, and let a short line end a paragraph even
+  without a full stop.
+- **Heading** when centred, narrower than 60% of the column, `height ≥ 1.18·hh`, short,
+  no terminal punctuation, and at least 3 non-punctuation characters. The width and
+  character tests are what keep centred verse lines and single glyphs (「三」) out of
+  the heading stream.
 - **Image page** when ≤6 blocks and no long line, or `<120` characters with no
   sentence punctuation. Tighten both conditions: a short real page (245th page of one
   book) was misclassified as an image and its text vanished.
@@ -118,16 +134,26 @@ them. Read `references/layout-heuristics.md` before changing thresholds.
   .!?:` , join it with the first block of the next page.
 - **Poetry / verse**: keep the printed line as one unit (`kind: "verse"`). Do not split
   lines into clauses, do not re-flow them, and do not "centre" them per line unless the
-  user asks — see §7.
+  user asks — see §7. A verse chapter is assembled from raw OCR lines, so it does not
+  pass through the normal heading removal: filter the printed title, the byline and the
+  running head yourself, or six extra "poems" appear (89 lines for 86 poems in one book).
+  Match running heads after blanking digits (`16 灵谿词说正续编` → `#灵谿词说正续编`),
+  never by substring.
 
 ## 5. Chapters from the printed table of contents
 
-Preferred: **read the printed page number out of the footer** and build an explicit
-`PDF page → printed page` map. It removes the guesswork of a constant offset, and it
-is the only mapping that survives a book with unnumbered inserts.
+Preferred, in this order:
 
-Fallback (what a single book can get away with): a constant offset plus windowed title
-matching.
+1. **PDF bookmarks** — `outline_toc.py book.pdf --page-map page_map.json --out toc.json`.
+   Many scans carry an outline with one bookmark per printed page whose *title is the
+   printed page number* (800+ of them in one book). That yields an exact
+   `printed → PDF` map (`printed − pdf` constant), no offset guessing, no title
+   matching. `build_epub.py` uses `"page_map"` when the spec has it and falls back to
+   `offset + window` otherwise. The named bookmarks (封面/书名/版权/目录) also give the
+   front matter for free. Entries that already carry `pdf_page` skip search entirely.
+2. **Footer page numbers** — read the printed number out of each page's footer and build
+   the same map. Survives unnumbered inserts, needs the footer rule to be right.
+3. **Constant offset + windowed title match** — the fallback; see the scoring notes below.
 
 - Seed the file: `toc_seed.py ocr/ --pages 11-14 --out toc.json`. It is a *draft* — OCR
   puts title, byline and page number on one line, wraps long titles, and drops the dot

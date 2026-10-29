@@ -11,6 +11,7 @@ spec.json:
       "ocr_dir": "ocr",                 # optional: needed for verse/toc chapters
       "image_dir": "pages",             # optional: needed for cover/image pages
       "toc": "toc.json",                # optional: chapter list, see below
+      "page_map": "page_map.json",      # optional: {"printed": pdf} from outline_toc.py
       "offset": 14,                     # printed page + offset = PDF page
       "window": 6,                      # +- pages searched per chapter
       "front": [                        # fixed pages before the first chapter
@@ -24,6 +25,9 @@ spec.json:
 
 toc.json: [{"section": "正编", "title": "论温庭筠词", "author": "叶嘉莹", "page": 50,
             "kind": "prose|verse|image"}, ...]   # page = printed page number
+
+An entry may instead carry "pdf_page" (what outline_toc.py emits): then page
+lookup is exact -- no offset, no searching, no fuzzy title matching.
 
 Everything is standard library only, so it runs on a bare Python install.
 """
@@ -40,7 +44,7 @@ import uuid
 import zipfile
 
 FOLD = {"幾": "几", "巳": "已", "谿": "溪", "裏": "里", "於": "于", "祇": "只"}
-FIXES = [("冯延已", "冯延巳"), ("缪钱", "缪钺")]
+FIXES = [("冯延已", "冯延巳"), ("缪钱", "缪钺"), ("缪鉞", "缪钺")]
 SENT_END = "。！？…”」』）】〉》.!?:;；"
 CJK = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
 
@@ -154,12 +158,34 @@ def merge_blocks(chunks):
 # --------------------------------------------------------------------------- xhtml
 
 
-def verse_html(lines, footers):
-    """One printed line per paragraph: a poem keeps its own line breaks."""
+def verse_html(lines, footers, title="", author=""):
+    """One printed line per paragraph: a poem keeps its own line breaks.
+
+    The heading block of the chapter's first page (printed title, the author
+    line, the running head of the following pages) is *not* a poem line, so it
+    is filtered out here as well -- the verse chapters take raw OCR lines and
+    never go through drop_heading().
+    """
+    t_norm = norm(title)
+    a_norm = [norm(part) for part in re.split(r"[、,，\s]+", author or "") if norm(part)]
     parts = ['<div class="poem">']
+    dropped_title = False
     for x0, y0, x1, y1, text, _score in lines:
         text = fix(text.strip())
-        if not text or any(text == f or text in f for f in footers):
+        # Running heads come back as "16 灵谿词说正续编" while the learned template
+        # is "#灵谿词说正续编": compare with the digits blanked out, not by substring.
+        bare = re.sub(r"\d+", "#", re.sub(r"\s+", "", text))
+        if not text or any(bare == f for f in footers):
+            continue
+        n = norm(text)
+        if t_norm and not dropped_title:
+            if n and (t_norm == n or (len(n) >= 4 and t_norm.startswith(n))):
+                dropped_title = True
+                continue
+        if t_norm and n and re.fullmatch(re.escape(t_norm) + r"\d+", n):
+            continue                                   # running head + page number
+        if a_norm and n and (n in a_norm or n == "".join(a_norm)
+                             or (len(n) >= 2 and any(n == a for a in a_norm))):
             continue
         if text.startswith(("(", "（")) and ("》" in text or "〉" in text or len(text) <= 24):
             parts.append('<p class="cap">%s</p>' % esc(text))
@@ -248,12 +274,19 @@ def build(spec):
 
     unmatched = []
     starts = []
+    pmap = {}
+    if spec.get("page_map"):                       # {"printed": pdf} from outline_toc.py
+        pmap = {str(k): int(v) for k, v in load_json(base(spec["page_map"])).items()}
     for entry in toc:
-        expected = int(entry.get("page", 1)) + offset
-        start, score = find_start(entry["title"], pages, expected, window)
-        if start is None:
-            unmatched.append((entry["title"], expected, score))
-            start = expected
+        if entry.get("pdf_page"):                  # already a PDF page (outline route)
+            start, score = int(entry["pdf_page"]), 999
+        else:
+            printed = int(entry.get("page", 1))
+            expected = pmap.get(str(printed)) or printed + offset
+            start, score = find_start(entry["title"], pages, expected, window)
+            if start is None:
+                unmatched.append((entry["title"], expected, score))
+                start = expected
         starts.append(start)
     for i, entry in enumerate(toc):
         end = (starts[i + 1] - 1) if i + 1 < len(starts) else tot_pages
@@ -263,7 +296,10 @@ def build(spec):
 
     docs = []
     if spec.get("printed_toc") and toc:
-        docs.append(("printedtoc.xhtml", toc_html(toc), "原书目录"))
+        docs.append(("printedtoc.xhtml",
+                     XHTML % {"lang": lang, "title": "原书目录", "type_attr": "",
+                              "body": toc_html(toc)},
+                     "原书目录"))
 
     for idx, chapter in enumerate(chapters, start=1):
         name = "ch%03d.xhtml" % idx
@@ -287,7 +323,8 @@ def build(spec):
             lines = []
             for page in chapter["pages"]:
                 lines += ocr_lines(ocr_dir, page)
-            body = "\n".join(head) + "\n" + verse_html(lines, footers)
+            body = "\n".join(head) + "\n" + verse_html(
+                lines, footers, title=title, author=chapter.get("author", ""))
         else:
             collected = []
             for page in chapter["pages"]:

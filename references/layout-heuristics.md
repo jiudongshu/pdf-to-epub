@@ -11,54 +11,91 @@ Input per line: `[x0, y0, x1, y1, text, score]`, origin top-left, pixels.
 | Quantity | How | Why |
 |---|---|---|
 | `H` | max `y1` on the page | bottom band for running heads |
-| `left` | 10th percentile of `x0` over full lines | text block's left edge |
-| `right` | 90th percentile of `x1` over full lines | right edge (justified text) |
+| `left` | 10th percentile of the page's `x0` | text block's left edge |
+| `right` | 90th percentile of the page's `x1` | right edge (justified text) |
 | `cw` | `(x1 − x0) / len(text)`, median | one character's width, the unit for all thresholds |
 | `hh` | median of `y1 − y0` | one line's height |
 
 Use percentiles, not min/max: one stray box (a page number, a stamp) otherwise
 defines the geometry for the whole page.
 
+**Percentiles are per page, not per book.** A book is printed in sections and the
+margins move: pooling every line gives one `right` that fits no section, and a `right`
+one character too wide makes every line "short", i.e. every line a paragraph (+111%
+blocks, 4 369 → 9 204, in the book this was measured on). Pooled geometry is still
+worth computing for column detection and for pages too sparse to trust (fewer than 8
+lines fall back to it).
+
 ## Running heads and folios (`--footer-band`, `--footer-repeat`)
 
-A line is a footer template if it sits below `0.88·H` **and** its text with digits
-replaced by `#` recurs on at least `--footer-repeat` pages.
+Two independent rules, both learned from the book:
 
-- `--footer-repeat 2` is correct. `4` looks safer and drops templates that appear
-  once per section — 「目录 1」「目录 2」 occur three times in a 14-page front matter,
-  and a leaked folio then becomes a paragraph.
-- Normalise before counting: `2灵谿词说正续编`, `17灵谿词说正续编` and `《灵谿词说正续编》
-  重版前言 3` are three different templates, which is why digits and surrounding
-  punctuation matter more than the exact text.
+1. **Band rule.** Any short line below `--footer-band · H` (default `0.96`) is a
+   running head. Keep the band tight. In one book folios sat at 0.983–0.986·H while
+   real footnotes sat at 0.86–0.95·H, so the earlier default of `0.88` deleted every
+   footnote in the book.
+2. **Template rule.** Text with digits replaced by `#` that occurs below the band is a
+   running head only when it appears on **≥30% of pages** (`--footer-repeat` is a floor,
+   not the threshold) and is not near the top of a page.
+
+The template rule catches folios that a publisher set inside the text block; the
+percentage test is what stops it from eating content. Count-based thresholds fail in
+both directions: 「目录 1」 occurs three times and is a footer, while 「1957年写定」 and
+「(原载《四川大学学报》1985年第4期)」 occur just as often at the bottom of *article-ending*
+pages and are text. A `≥2` count rule removed 40 539 characters (6.4%) from one book,
+including the closing date and source line of every essay.
+
+- Normalise before counting: `2灵谿词说正续编` and `17灵谿词说正续编` must collapse to
+  `#灵谿词说正续编`; `《灵谿词说正续编》重版前言 3` only collapses if the space is
+  stripped too.
 - Footer lines are dropped, not merged. If a chapter's *last* line lands in the band
-  (a page filled to the bottom), narrow the band to `0.9` for that book.
+  (a page filled to the bottom), narrow the band until it does not.
+- When a line survives as a running head in a verse chapter, compare it after blanking
+  digits (`re.sub(r"\d+", "#", text)`), never with `text in template` — the template
+  starts with `#` and the page's line starts with `16`.
 
-## Paragraph breaks (`--indent`, `--gap`, `--short-end`)
+## Paragraph breaks (`--indent`, `--gap`, `--eoc-tol`)
 
 Start a new paragraph when any of these holds:
 
 | Condition | Flag | Typical value |
 |---|---|---|
-| first-line indent | `x0 − left > --indent·cw` | 1.2 |
-| previous line ended early | `prev.x1 < right − --short-end·cw` | 2.0 |
+| previous line stopped short of the right edge | `prev.x1 < right − --eoc-tol·cw` | 1.0 |
+| first-line indent | `x0 − left > --indent·cw` | 2.0 |
 | vertical gap | `y0 − prev.y1 > --gap·hh` | 1.45 |
-| previous line ends a sentence **and** the gap is large | — | 0.8·gap·hh |
 
-Joining is language-aware: two Han characters concatenate with no space; anything
-else gets one; a trailing `-` absorbs the space (Latin hyphenation).
+The end-of-column test is the one that carries a Chinese book: prose is justified, so a
+line that continues the paragraph reaches `right` to within a fraction of a character,
+while the last line of a paragraph stops short by several character widths and usually
+has **no** full stop (it ends in 「，」「：」「」」 or nothing). Relying on sentence
+punctuation alone merges verse lines, list items and heading lines into the paragraph
+above them.
+
+Measure the tolerance instead of guessing: take every line that is followed by another
+line at normal leading, split by "ends with sentence punctuation or not", and print
+percentiles of `(right − x1)/cw`. One book: continuing lines p50 0.07 / p90 0.21,
+paragraph-final lines p50 4.4 / p90 26.4 — a two-order-of-magnitude gap, so any
+threshold between 0.5 and 3 behaves; 1.0 is safe.
+
+Joining is language-aware: `unicodedata.east_asian_width(prev) in ("F","W","A")` means
+no space (Han, fullwidth punctuation, kana, ambiguous-width quotes); anything else gets
+one; a trailing `-` absorbs the space (Latin hyphenation).
 
 A book with no first-line indent (block paragraphs separated by blank space) needs
 `--indent 99` to disable that rule and `--gap` tuned by eye.
 
-## Headings (`--heading-scale`, `--heading-max`, `--center-tol`, heading min length)
+## Headings (`--heading-scale`, `--heading-max`, `--heading-min`, `--center-tol`)
 
 A line is a heading when it is centred (`|centre − page centre| < --center-tol·cw`),
-taller than body text (`≥ 1.18·hh`), short (`≤ 40` chars) and does **not** end in
-sentence punctuation.
+narrower than 60% of the column, taller than body text (`≥ 1.18·hh`), short (`≤ 40`
+chars), has at least `--heading-min` (3) non-punctuation characters, and does **not**
+end in sentence punctuation.
 
-Then drop headings whose normalised length is below 3 characters. Without that
-filter, single characters that happen to sit centred — 「三」「懒」「笑」「欹」「倚」 —
-become chapter headings and pollute the nav document.
+Each extra condition exists because of a real false positive: centred single glyphs
+(「三」「懒」「笑」「欹」「倚」) became chapter headings; centred lyric lines of a poem
+inside a prose chapter became section headings; a centred *separator* became a chapter
+of its own. The 60%-width test is what separates a title from a centred verse line,
+because a verse line is as wide as its column.
 
 ## Image and blank pages (`--image-blocks`, `--image-chars`, `--long-line`)
 

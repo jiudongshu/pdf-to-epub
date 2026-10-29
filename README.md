@@ -26,6 +26,7 @@ pdf ──probe──> has text layer? ──yes──> extract text ─┐
 | OCR | `scripts/ocr_pages.py` | `ocr/pNNNN.json`, one file per page, resumable, parallel |
 | Layout | `scripts/rebuild_text.py` | `blocks.json`: paragraphs, headings, image pages |
 | Chapter list | `scripts/toc_seed.py` | draft `toc.json` from the OCR of the printed contents |
+| Page map | `scripts/outline_toc.py` | exact `printed -> PDF` page map from the PDF's own bookmarks (many scans bookmark every printed page) |
 | Package | `scripts/build_epub.py` | `book.epub` (EPUB 3, nav + NCX, metadata, cover) |
 | Validate | `scripts/validate_epub.py` | structural PASS/FAIL in one second |
 | All of the above | `scripts/pipeline.py` | runs the mechanical stages, prints the human ones |
@@ -51,7 +52,10 @@ pip install "rapidocr>=3.10" onnxruntime
 # 1-4. probe, extract, OCR, rebuild  (safe to re-run; completed pages are skipped)
 python scripts/pipeline.py book.pdf work/ --workers 8 --must-contain 谿,钺
 
-# 5. chapter list: seed from the printed contents, then correct the titles
+# 5. exact page map from the PDF's own outline (skip if it has none)
+python scripts/outline_toc.py book.pdf --page-map work/page_map.json --out work/toc_outline.json
+
+# 6. chapter list: seed from the printed contents, then correct the titles
 python scripts/toc_seed.py work/ocr --pages 11-14 --out work/toc.json
 
 # 6. describe the book (see examples/spec.json), then build
@@ -73,8 +77,11 @@ Measured end to end on an 822-page scan (452×712 pt, 270 dpi, Chinese):
 | chapter mapping + build | 45 min |
 | validation and proofreading | 20 min |
 
-Result: 633,678 characters, 68 documents, 2.6 MB, EPUBCheck `0 fatals / 0 errors /
-0 warnings`.
+Result: 637,002 characters, 68 documents, ~2 MB, EPUBCheck `0 fatals / 0 errors /
+0 warnings`. The same book before the layout fixes came out at 633,678 characters: the
+3,300-character difference is footnotes and end-of-article notes that the old footer
+rule was deleting, while the block count stayed flat at ~4,300 — more text, not more
+fragmentation.
 
 ## The two lessons this repository exists for
 
@@ -104,6 +111,7 @@ references/ocr-engines.md    engine choice, the rare-glyph test, throughput
 references/layout-heuristics.md  every threshold, why it is that value
 references/epub3-checklist.md    package structure and EPUBCheck
 references/troubleshooting.md    locked files, mojibake, empty chapters
+references/prior-art.md          other converters: what was taken, what was not
 examples/spec.json           a real 62-chapter spec
 examples/toc.json            the matching chapter list
 ```

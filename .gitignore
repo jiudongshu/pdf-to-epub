@@ -4,3 +4,5 @@ work/
 book.epub
 *.epub
 !examples/*.epub
+tmp_outline/
+*.tmp
